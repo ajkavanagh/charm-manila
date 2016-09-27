@@ -166,24 +166,24 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
 
     @property
     def public_url(self):
-        return super().public_url + "/v1/"
+        return super().public_url + "/v1/%(tenant_id)s"
 
     @property
     def admin_url(self):
-        return super().admin_url + "/v1/"
+        return super().admin_url + "/v1/%(tenant_id)s"
 
     @property
     def internal_url(self):
-        return super().internal_url + "/v1/"
+        return super().internal_url + "/v1/%(tenant_id)s"
 
     @property
     def public_url_v2(self):
-        return super().public_url + "/v2/"
+        return super().public_url + "/v2/%(tenant_id)s"
 
     @property
     def admin_url_v2(self):
-        return super().admin_url + "/v2/"
+        return super().admin_url + "/v2/%(tenant_id)s"
 
     @property
     def internal_url_v2(self):
-        return super().internal_url + "/v2/"
+        return super().internal_url + "/v2/%(tenant_id)s"
