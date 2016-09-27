@@ -15,7 +15,7 @@ options:
       provide a later version of OpenStack will trigger a software
       upgrade.
   rabbit-user:
-    default: barbican
+    default: manila
     type: string
     description: Username used to access rabbitmq queue
   rabbit-vhost:
@@ -23,13 +23,13 @@ options:
     type: string
     description: Rabbitmq vhost
   database-user:
-    default: barbican
+    default: manila
     type: string
-    description: Username for Neutron database access (if enabled)
+    description: Username for Manila database access
   database:
-    default: barbican
+    default: manila
     type: string
-    description: Database name for Neutron (if enabled)
+    description: Database name for Manila
   debug:
     default: False
     type: boolean
@@ -42,42 +42,4 @@ options:
     default: RegionOne
     type: string
     description: OpenStack Region
-  keystone-api-version:
-    default: "2"
-    type: string
-    description: none,  2 or 3
-  require-hsm-plugin:
-    default: False
-    type: boolean
-    description: |
-      If True (the default) then the barbcian-worker process won't be fully
-      functional until an HSM is associated with the charm. The charm will
-      remain in the blocked state until an HSM is available.
-  label-mkek:
-    default: primarymkek
-    type: string
-    description: |
-      This is the label for the primary MKEK (Master Key Encryption Key) stored
-      in the HSM that is used by Barbican to wrap other encryption keys that
-      are provided to projects.
 
-      Note the assocated action 'generate-mkek' is used to create an MKEK when
-      initialising a system.
-  mkek-key-length:
-    default: 32
-    type: int
-    description: The length for generating an MKEK
-  label-hmac:
-    default: primaryhmac
-    type: string
-    description: |
-      This is the label for the primary HMAC (keyed-hash message authentication
-      code) stored in the HSM that is used by Barbican to wrap other HMACs that
-      are provided to projects.
-
-      Note the assocated action 'generate-hmac' is used to create an HMAC when
-      initialising a system.
-  hmac-key-length:
-    default: 32
-    type: int
-    description: The length for generating an HMAC

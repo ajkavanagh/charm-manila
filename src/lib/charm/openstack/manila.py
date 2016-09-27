@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# The barbican handlers class
+# The manila handlers class
 
 # bare functions are provided to the reactive handlers to perform the functions
 # needed on the class.
@@ -28,177 +28,162 @@ import charms_openstack.charm
 import charms_openstack.adapters
 import charms_openstack.ip as os_ip
 
-PACKAGES = ['barbican-common', 'barbican-api', 'barbican-worker',
-            'python-mysqldb']
-BARBICAN_DIR = '/etc/barbican/'
-BARBICAN_CONF = BARBICAN_DIR + "barbican.conf"
-BARBICAN_API_PASTE_CONF = BARBICAN_DIR + "barbican-api-paste.ini"
-BARBICAN_WSGI_CONF = '/etc/apache2/conf-available/barbican-api.conf'
+# note that manila-common is pulled in via the other packages.
+PACKAGES = ['manila-api',
+            'manila-data',
+            'manila-scheduler',
+            'manila-share',
+            'python-pymysql']
 
-OPENSTACK_RELEASE_KEY = 'barbican-charm.openstack-release-version'
+MANILA_DIR = '/etc/manila/'
+MANILA_CONF = MANILA_DIR + "manila.conf"
+MANILA_LOGGING_CONF = MANILA_DIR + "logging.conf"
+MANILA_API_PASTE_CONF = MANILA_DIR + "api-paste.ini"
 
 # select the default release function and ssl feature
 charms_openstack.charm.use_defaults('charm.default-select-release')
 
-# TODO: this should be on the charm class
-charms_openstack.charm.use_features('ssl')
-
 
 ###
-# Implementation of the Barbican Charm classes
+# Implementation of the Manila Charm classes
 
-# Add some properties to the configuration for templates/code to use with the
-# charm instance.  The config_validator is called when the configuration is
-# loaded, and the properties are to add those names to the config object.
-
-@charms_openstack.adapters.config_validator
-def validate_keystone_api_version(config):
-    if config.keystone_api_version not in ['2', '3', 'none']:
-        raise ValueError(
-            "Unsupported keystone-api-version ({}). It should be 2 or 3"
-            .format(config.keystone_api_version))
-
-
-@charms_openstack.adapters.config_property
-def barbican_api_keystone_pipeline(config):
-    if config.keystone_api_version == "2":
-        return 'cors keystone_authtoken context apiapp'
-    else:
-        return 'cors keystone_v3_authtoken context apiapp'
-
-
-@charms_openstack.adapters.config_property
-def barbican_api_pipeline(config):
-    return {
-        "2": "cors keystone_authtoken context apiapp",
-        "3": "cors keystone_v3_authtoken context apiapp",
-        "none": "cors unauthenticated-context apiapp"
-    }[config.keystone_api_version]
-
-
-@charms_openstack.adapters.config_property
-def barbican_api_keystone_audit_pipeline(config):
-    if config.keystone_api_version == "2":
-        return 'keystone_authtoken context audit apiapp'
-    else:
-        return 'keystone_v3_authtoken context audit apiapp'
-
-
-# Adapt the barbican-hsm-plugin relation for use in rendering the config
-# for Barbican.  Note that the HSM relation is optional, so we have a class
-# variable 'exists' that we can test in the template to see if we should
-# render HSM parameters into the template.
-
-@charms_openstack.adapters.adapter_property('hsm')
-def library_path(hsm):
-    """Provide a library_path property to the template if it exists"""
-    try:
-        return hsm.relation.plugin_data['library_path']
-    except:
-        return ''
-
-@charms_openstack.adapters.adapter_property('hsm')
-def login(hsm):
-    """Provide a login property to the template if it exists"""
-    try:
-        return hsm.relation.plugin_data['login']
-    except:
-        return ''
-
-@charms_openstack.adapters.adapter_property('hsm')
-def slot_id(hsm):
-    """Provide a slot_id property to the template if it exists"""
-    try:
-        return hsm.relation.plugin_data['slot_id']
-    except:
-        return ''
-
-
-# class BarbicanAdapters(charms_openstack.adapters.OpenStackAPIRelationAdapters):
-    # """
-    # Adapters class for the Barbican charm.
-
-    # This plumbs in the BarbicanConfigurationAdapter as the ConfigurationAdapter
-    # to provide additional properties.
-    # """
-
-    # relation_adapters = {
-        # 'hsm': HSMAdapter,
-    # }
-
-    # def __init__(self, relations):
-        # super(BarbicanAdapters, self).__init__(
-            # relations,
-            # options_instance=BarbicanConfigurationAdapter(
-                # port_map=BarbicanCharm.api_ports))
-
-
-class BarbicanCharm(charms_openstack.charm.HAOpenStackCharm):
-    """BarbicanCharm provides the specialisation of the OpenStackCharm
-    functionality to manage a barbican unit.
+class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
+    """ManilaCharm provides the specialisation of the OpenStackCharm
+    functionality to manage a manila unit.
     """
 
     release = 'mitaka'
-    name = 'barbican'
+    name = 'manila'
     packages = PACKAGES
     api_ports = {
-        'barbican-worker': {
-            os_ip.PUBLIC: 9311,
-            os_ip.ADMIN: 9312,
-            os_ip.INTERNAL: 9311,
-        }
+        'manila-api': {
+            os_ip.PUBLIC: 8786,
+            os_ip.ADMIN: 8786,
+            os_ip.INTERNAL: 8786,
+        },
     }
-    service_type = 'barbican'
-    default_service = 'barbican-worker'
-    services = ['apache2', 'barbican-worker']
+    service_type = 'manila'
+    # manila needs a second service type as well - there is a custom connect
+    # function to set both service types.
+    service_type_v2 = 'manilav2'
+
+    default_service = 'manila-api'
+    services = ['manila-api',
+                'manila-scheduler',
+                'manila-share',
+                'manila-data']
 
     # Note that the hsm interface is optional - defined in config.yaml
     required_relations = ['shared-db', 'amqp', 'identity-service']
 
-    # TODO: plumb in the condition for the optional relation becoming required
-    conditional_relations = {
-        'hsm': lambda self: self.config.require_hsm_plugin,
-    }
-
     restart_map = {
-        BARBICAN_CONF: services,
-        BARBICAN_API_PASTE_CONF: services,
-        BARBICAN_WSGI_CONF: services,
+        MANILA_CONF: services,
+        MANILA_API_PASTE_CONF: services,
+        MANILA_LOGGING_CONF: services,
     }
 
-    # TODO: how do we make this adapter_class automagic?
-    adapters_class = BarbicanAdapters
+    # This is the command to sync the database
+    sync_cmd = ['sudo', 'manila-manage', 'db', 'sync']
 
-    ha_resources = ['vips', 'haproxy']
+    # ha_resources = ['vips', 'haproxy']
 
-    def install(self):
-        """Customise the installation, configure the source and then call the
-        parent install() method to install the packages
+    def get_amqp_credentials(self):
+        """Provide the default amqp username and vhost as a tuple.
+
+        :returns (username, host): two strings to send to the amqp provider.
         """
-        # DEBUG - until seed random change lands into xenial cloud archive
-        # BUG #1599550 - barbican + softhsm2 + libssl1.0.0:
-        #  pkcs11:_generate_random() fails
-        # WARNING: This charm can't be released into stable until the bug is
-        # fixed.
-        charmhelpers.fetch.add_source("ppa:ajkavanagh/barbican")
-        self.configure_source()
-        # and do the actual install
-        super(BarbicanCharm, self).install()
+        return (self.config['rabbit-user'], self.config['rabbit-vhost'])
 
-    # def states_to_check(self, required_relations=None):
-        # """Override the default states_to_check() for the assess_status
-        # functionality so that, if we have to have an HSM relation, then enforce
-        # it on the assess_status() call.
+    def get_database_setup(self):
+        """Provide the default database credentials as a list of 3-tuples
 
-        # If param required_relations is not None then it overrides the
-        # instance/class variable self.required_relations.
+        returns a structure of:
+        [
+            {'database': <database>,
+             'username': <username>,
+             'hostname': <hostname of this unit>
+             'prefix': <the optional prefix for the database>, },
+        ]
 
-        # :param required_relations: [list of state names]
-        # :returns: [states{} as per parent method]
-        # """
-        # if required_relations is None:
-            # required_relations = self.required_relations
-        # if hookenv.config('require-hsm-plugin'):
-            # required_relations.append('hsm')
-        # return super(BarbicanCharm, self).states_to_check(
-            # required_relations=required_relations)
+        :returns [{'database': ...}, ...]: credentials for multiple databases
+        """
+        return [
+            dict(
+                database=self.config['database'],
+                username=self.config['database-user'],
+                hostname=hookenv.unit_private_ip(), )
+        ]
+
+    def register_endpoints(self, keystone):
+        """Custom function to register the TWO keystone endpoints that this
+        charm requires.  'charm' and 'charmv2'.
+
+        :param keystone: the keystone relation on which to setup the endpoints
+        """
+        # regsiter the first endpoint
+        self._custom_register_endpoints(keystone, 'v1',
+                                        self.service_type,
+                                        self.region,
+                                        self.public_url,
+                                        self.internal_url,
+                                        self.admin_url)
+        # regsiter the second endpoint
+        self._custom_register_endpoints(keystone, 'v2',
+                                        self.service_type_v2,
+                                        self.region,
+                                        self.public_url_v2,
+                                        self.internal_url_v2,
+                                        self.admin_url_v2)
+
+    @staticmethod
+    def _custom_register_endpoints(keystone, prefix, service, region,
+                                   public_url, internal_url, admin_url):
+        """Custom function to enable registering of multiple endpoints.
+
+        Keystone charm understands multiple endpoints if they are prefixed with
+        a string_  as in 'v1_service' and 'v2_service', etc.  However, the
+        keystone interface doesn't know how to do this.  Therefore, this
+        function duplicates part of that functionality but enables the
+        'multiple' endpoints to be set
+
+        :param keystone: the relation that is keystone.
+        :param prefix: the prefix to prepend to '_<var>'
+        :param service: the service to set
+        :param region: the OS region
+        :param public_url: the public_url
+        :param internal_url: the internal_url
+        :prarm admin_url: the admin url.
+        """
+        relation_info = {
+            '{}_service'.format(prefix): service,
+            '{}_public_url'.format(prefix): public_url,
+            '{}_internal_url'.format(prefix): internal_url,
+            '{}_admin_url'.format(prefix): admin_url,
+            '{}_region'.format(prefix): region,
+        }
+        keystone.set_local(**relation_info)
+        keystone.set_remote(**relation_info)
+
+    @property
+    def public_url(self):
+        return super().public_url + "/v1/"
+
+    @property
+    def admin_url(self):
+        return super().admin_url + "/v1/"
+
+    @property
+    def internal_url(self):
+        return super().internal_url + "/v1/"
+
+    @property
+    def public_url_v2(self):
+        return super().public_url + "/v2/"
+
+    @property
+    def admin_url_v2(self):
+        return super().admin_url + "/v2/"
+
+    @property
+    def internal_url_v2(self):
+        return super().internal_url + "/v2/"
