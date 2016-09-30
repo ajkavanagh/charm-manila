@@ -1,0 +1,31 @@
+# vim: set ts=2 et:
+# deployer bundle for development ('next') charms
+# UOSCI relies on this for OS-on-OS deployment testing
+openstack-services:
+  series: trusty
+  services:
+    mysql:
+      charm: cs:~openstack-charmers/xenial/percona-cluster
+      constraints: mem=1G
+      options:
+        dataset-size: 50%
+    rabbitmq-server:
+      charm: cs:~openstack-charmers/xenial/rabbitmq-server
+      constraints: mem=1G
+    keystone:
+      charm: cs:~openstack-charmers/xenial/keystone
+      constraints: mem=1G
+      options:
+        admin-password: openstack
+        admin-token: ubuntutesting
+        preferred-api-version: "3"
+    barbican:
+      charm: local:xenial/barbican
+      options:
+        require-hsm-plugin: False
+        keystone-api-version: "3"
+  relations:
+    - [ keystone, mysql ]
+    - [ barbican, mysql ]
+    - [ barbican, rabbitmq-server ]
+    - [ barbican, keystone ]
