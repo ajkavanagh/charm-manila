@@ -1,4 +1,4 @@
-#!/bin/bash
+#/bin/bash
 
 # stolen/heavily influenced from openstack-charm-testing
 
@@ -6,38 +6,15 @@
 # assumes that overcloud is in ./novarc and undercloud (serverstack) is in
 # ~/novarc
 
+# In a CirrOS image, the login account is cirros. The password is "cubswin:)"
+
 set -ex
 
-OVERCLOUD=./novarc
-UNDERCLOUD=~/novarc
+# load the common vars
+source ./vars.sh
 
-# Set serverstack defaults, if not already set.
-[[ -z "$GATEWAY" ]] && export GATEWAY="10.5.0.1"
-[[ -z "$CIDR_EXT" ]] && export CIDR_EXT="10.5.0.0/16"
-[[ -z "$FIP_RANGE" ]] && export FIP_RANGE="10.5.150.0:10.5.200.254"
-[[ -z "$NAMESERVER" ]] && export NAMESERVER="10.245.160.2"
-[[ -z "$CIDR_PRIV" ]] && export CIDR_PRIV="192.168.21.0/24"
-[[ -z "$SWIFT_IP" ]] && export SWIFT_IP="10.245.161.162"
-
-# Accept network type as first parameter, assume gre if unspecified
-net_type=${1:-"gre"}
-
-# add extra port to overcloud neutron-gateway and configure charm to use it
-# note that we have to source the UNDERCLOUD so that the script uses the network
-# that we are connected to.
-source ~/novarc
-./post-deploy-config.py neutron-gateway
-
-# now everything is with the OVERCLOUD
-source ./novarc
-
-# handy function to test if an array contains a value $1 in ${2[@]}
-# returns $? as 1 if the element does exist
-elementIn () {
-  local e
-  for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
-  return 1
-}
+## now everything is with the OVERCLOUD
+source $OVERCLOUD
 
 # we need cirros and manila-service-image -- if not, we'll have to add them.
 glance_image_list=($(openstack image list -c Name -f value))
@@ -66,13 +43,14 @@ then
     --disk-format=qcow2 < ~/images/manila-service-image-master.qcow2
 fi
 
-
-## Now set up the networks so we can test shares.
-source $OVERCLOUD
-./neutron-ext-net.py --network-type flat -g $GATEWAY -c $CIDR_EXT \
-  -f $FIP_RANGE ext_net
-./neutron-tenant-net.py --network-type $net_type -t admin -r provider-router \
-  -N $NAMESERVER private $CIDR_PRIV
+## Set up the flavors for the cirros image and the manila-service-image
+flavors=($(openstack flavor list -c Name -f value))
+if ! elementIn "manila-service-flavor" ${flavors[@]}; then
+  openstack flavor create manila-service-flavor --id 100 --ram 256 --disk 0 --vcpus 1
+fi
+if ! elementIn "m1.cirros" ${flavors[@]}; then
+  openstack flavor create m1.cirros --id 6 --ram 64 --disk 0 --vcpus 1
+fi
 
 
 # Create demo/testing users, tenants and flavor
@@ -91,22 +69,61 @@ if ! elementIn "demo-user" ${keypairs[@]}; then
   openstack keypair create demo-user > ./demo-user-rsa
   chmod 400 ./demo-user-rsa
 fi
- 
+
+## need the network id for 'private' network to put into these images if they
+# don't exist.
+net_id=$( openstack network list -c ID -c Name -f value | grep private | awk '{print $1}' | tr -d '\n')
 # get list of running servers
 server_list=($(openstack server list -c Name -f value))
 if ! elementIn "cirros-test1" ${server_list[@]}; then
   # and create two test vms for share testing
   # see if the two servers exist -- if either exists, tear it down.
   openstack server create --flavor m1.cirros --image cirros --key-name demo-user \
-    --security-group default --nic net-id=686d654c-87ac-4e19-8616-cdb351bcaa52  \
-    cirros-test1
+    --security-group default --nic net-id=$net_id cirros-test1
 fi
 if ! elementIn "cirros-test2" ${server_list[@]}; then
   # and create two test vms for share testing
   # see if the two servers exist -- if either exists, tear it down.
   openstack server create --flavor m1.cirros --image cirros --key-name demo-user \
-    --security-group default --nic net-id=686d654c-87ac-4e19-8616-cdb351bcaa52  \
-    cirros-test2
+    --security-group default --nic net-id=$net_id cirros-test2
 fi
+
+floating_ips=($(openstack ip floating list -c "Floating IP Address" -f value))
+server_networks=$(openstack server list -c Name -c Networks -f value)
+_ifs=IFS
+IFS='
+'
+for server_network in ${server_networks}; do
+  IFS=' '
+  echo Doing $server_network
+  server=$(echo $server_network | cut -f1 -d " ")
+  found=0
+  for ip in ${floating_ips[@]}; do
+    rry=($(echo $server_network))
+    if elementIn "$ip" ${rry[@]}; then
+      found=1
+    fi
+  done
+  if [ $found -eq 0 ]; then
+    # need to add an IP address
+    # see if there is a one not assigned.
+    not_used_ips=($(openstack ip floating list -c "Floating IP Address" -c "Fixed IP Address" -f value))
+    found=
+    for not_used_ip in ${not_used_ips[@]}; do
+      rry=($(echo $server_network))
+      if elementIn None ${rry[@]}; then
+        found=$(echo $not_used_ip | cut -f1 -d" ")
+        break
+      fi
+    done
+    if [ "xxx" == "xxx$found" ]; then
+      # create and IP address and then assign it.
+      found=$(openstack ip floating create ext_net | grep "^| ip" | awk '{print $4}')
+    fi
+    # now assign the ip address
+    openstack ip floating add $found $server
+  fi
+done
+IFS=_ifs
 
 #vim: set ts=2 et:

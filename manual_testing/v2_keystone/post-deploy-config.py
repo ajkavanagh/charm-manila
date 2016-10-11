@@ -60,7 +60,7 @@ if __name__ == '__main__':
     service = sys.argv[1]
 
     service_config = yaml.load(
-        subprocess.check_output(['juju', 'status', service])
+        subprocess.check_output(['juju', 'status', '--format=yaml', service])
     )
 
     uuids = []
@@ -82,8 +82,11 @@ if __name__ == '__main__':
 
     ports = " ".join(ext_port)
     if ports:
-        print("Setting ext-port configuration on {} to {}".format(service, ports))
-        subprocess.check_call(['juju', 'set', service, 'data-port={}'.format(ports)])
+        juju_version = subprocess.check_output(['juju', '--version'])[0]
+        print("juju_version: '{}'".format(juju_version))
+        command = ['set', 'config'][int(juju_version) - 1]
+        print("Setting data-port configuration on {} to {}".format(service, ports))
+        subprocess.check_call(['juju', command, service, 'data-port={}'.format(ports)])
     else:
         print("Nothing to do with ext-port configuration")
 

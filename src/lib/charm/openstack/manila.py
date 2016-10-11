@@ -17,6 +17,7 @@
 # needed on the class.
 from __future__ import absolute_import
 
+import re
 import subprocess
 
 import charmhelpers.contrib.openstack.utils as ch_utils
@@ -33,7 +34,9 @@ PACKAGES = ['manila-api',
             'manila-data',
             'manila-scheduler',
             'manila-share',
-            'python-pymysql']
+            'python-pymysql',
+            'python-apt',  # for subordinate neutron-openvswitch if needed.
+            ]
 
 MANILA_DIR = '/etc/manila/'
 MANILA_CONF = MANILA_DIR + "manila.conf"
@@ -42,6 +45,95 @@ MANILA_API_PASTE_CONF = MANILA_DIR + "api-paste.ini"
 
 # select the default release function and ssl feature
 charms_openstack.charm.use_defaults('charm.default-select-release')
+
+def strip_join(s, divider=" "):
+    """Cleanup the string passed, split on whitespace and then rejoin it cleanly
+
+    :param s: A sting to cleanup, remove non alpha chars and then represent the
+        string.
+    :param divider: The joining string to put the bits back together again.
+    :returns: string
+    """
+    return divider.join(re.split(r'\s+', re.sub(r'([^\s\w-])+', '', (s or ""))))
+
+
+###
+# Compute some options to help with template rendering
+@charms_openstack.adapters.config_property
+def computed_share_backends(config):
+    """Determine the backend protocols that are provided as a string.
+
+    At the moment it just takes the 'share-backends' configuration option,
+    strings not alpha chars, lowercases it, and then provides a comma separated
+    list.
+
+    :param config: the config option on which to look up config options
+    :returns: string
+    """
+    return strip_join(config.share_backends, ' ')
+
+
+@charms_openstack.adapters.config_property
+def computed_share_protocols(config):
+    """Return a list of protocols as a comma (no space) separated list.
+    The default protocols are CIFS,NFS.
+
+    :param config: the config option on which to look up config options
+    :returns: string
+    """
+    return strip_join(config.share_protocols, ',').upper()
+
+
+@charms_openstack.adapters.config_property
+def computed_generic_driver(config):
+    """Return True if the generic driver should be configured.
+    :returns: boolean
+    """
+    hookenv.log(">>>> computed_generic_driver")
+    hookenv.log("backends: {}".format(computed_share_backends(config)))
+    return 'generic' in computed_share_backends(config).lower().split(' ')
+
+
+@charms_openstack.adapters.config_property
+def computed_generic_use_password(config):
+    """Return True if the generic driver should use a password rather than an
+    ssh key.
+    :returns: boolean
+    """
+    return (bool(config.generic_driver_service_instance_password) &
+            ((config.generic_driver_auth_type or '').lower()
+             in ('password', 'both')))
+
+
+@charms_openstack.adapters.config_property
+def computed_generic_use_ssh(config):
+    """Return True if the generic driver should use a password rather than an
+    ssh key.
+    :returns: boolean
+    """
+    return ((config.generic_driver_auth_type or '').lower() in ('ssh', 'both'))
+
+
+@charms_openstack.adapters.config_property
+def computed_generic_define_ssh(config):
+    """Return True if the generic driver should define the SSH keys
+    :returns: boolean
+    """
+    return (bool(config.generic_driver_service_ssh_key) &
+            boot(config.generic_driver_service_ssh_key_public))
+
+
+@charms_openstack.adapters.config_property
+def computed_debug_level(config):
+    """Return NONE, INFO, WARNING, DEBUG depending on the settings of
+    options.debug and options.level
+    :returns: string, NONE, WARNING, DEBUG
+    """
+    if not config.debug:
+        return "NONE"
+    if config.verbose:
+        return "DEBUG"
+    return "WARNING"
 
 
 ###
@@ -86,6 +178,75 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
     sync_cmd = ['sudo', 'manila-manage', 'db', 'sync']
 
     # ha_resources = ['vips', 'haproxy']
+
+    # Custom charm configuration
+    # These are the backends which this charm knows how to configure.
+    valid_share_backends = ['generic',]
+
+    def install(self):
+        """Called when the charm is being installed or upgraded.
+
+        The available configuration options need to be check AFTER the charm is
+        installed to check to see whether it is blocked or can go into service.
+        """
+        super().install()
+        # TODO: this creates the /etc/nova directory for the
+        # neutron-openvswitch plugin if needed.
+        subprocess.check_call(["mkdir", "-p", "/etc/nova"])
+        self.assess_status()
+
+    def custom_assess_status_check(self):
+        """Verify that the configuration provided is valid and thus the service
+        is ready to go.  This will return blocked if the configuraiton is not
+        valid for the service.
+
+        :returns (status: string, message: string): the status, and message if
+            there is a problem. Or (None, None) if there are no issues.
+        """
+        config = self.config
+        if not config.get('share-backends', None):
+            return 'blocked', 'No share backends configured'
+        backends = str(config['share-backends']).split(' ')
+        invalid_backends = set(backends).difference(self.valid_share_backends)
+        if invalid_backends:
+            return 'blocked', 'Unknown backends: {}'.format(invalid_backends)
+        default_share_backend = config.get('default-share-backend', None)
+        if not default_share_backend:
+            return 'blocked', "'default-share-backend' is not set"
+        if default_share_backend not in backends:
+            return ('blocked',
+                    "'default-share-backend:{}' is not a configured backend"
+                    .format(default_share_backend))
+        if 'generic' in backends:
+            message = self._validate_generic_driver_config()
+            if message:
+                return 'blocked', message
+        return None, None
+
+    def _validate_generic_driver_config(self):
+        """Validate that the driver configuration is at least complete, and
+        that it was valid when it used (either at configuration time or config
+        changed time)
+
+        :returns string/None: string if there is a proble, None if it is valid
+        """
+        config = self.config
+        if not config.get('generic-driver-handles-share-servers', None):
+            # Nothing to check if the driver doesn't handle share servers
+            # directly.
+            return None
+        if not config.get('generic-driver-service-image-name', None):
+            return "Missing 'generic-driver-service-image-name'"
+        if not config.get('generic-driver-service-instance-user', None):
+            return "Missing 'generic-driver-service-instance-user'"
+        if not config.get('generic-driver-service-instance-flavor-id', None):
+            return "Missing 'generic-driver-service-instance-flavor-id"
+        # Need at least one of the password or the keypair
+        if (not (bool(config.get(
+                'generic-driver-service-instance-password', None))) and
+                not (bool(config.get('generic-driver-keypair-name', None)))):
+            return "Need at least one of instance password or keypair name"
+        return None
 
     def get_amqp_credentials(self):
         """Provide the default amqp username and vhost as a tuple.

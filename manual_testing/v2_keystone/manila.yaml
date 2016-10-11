@@ -2,7 +2,7 @@
 # deployer bundle for development ('next') charms
 # UOSCI relies on this for OS-on-OS deployment testing
 openstack-services:
-  series: trusty
+  series: xenial
   services:
     mysql:
       #charm: cs:~openstack-charmers/xenial/percona-cluster

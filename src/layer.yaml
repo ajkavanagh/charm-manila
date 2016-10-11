@@ -3,4 +3,5 @@ includes:
   - interface:mysql-shared
   - interface:rabbitmq
   - interface:keystone
+  - interface:neutron-plugin
 repo: https://github.com/openstack/charm-manila

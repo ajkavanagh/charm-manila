@@ -15,164 +15,67 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
-import unittest
-
 import mock
 
 import reactive.manila_handlers as handlers
+import charm.openstack.manila as handlers_manila
+
+import charms_openstack.test_utils as test_utils
 
 
-_when_args = {}
-_when_not_args = {}
+class TestRegisteredHooks(test_utils.TestRegisteredHooks):
 
-
-def mock_hook_factory(d):
-
-    def mock_hook(*args, **kwargs):
-
-        def inner(f):
-            # remember what we were passed.  Note that we can't actually
-            # determine the class we're attached to, as the decorator only gets
-            # the function.
-            try:
-                d[f.__name__].append(dict(args=args, kwargs=kwargs))
-            except KeyError:
-                d[f.__name__] = [dict(args=args, kwargs=kwargs)]
-            return f
-        return inner
-    return mock_hook
-
-
-class TestManilaHandlers(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls._patched_when = mock.patch('charms.reactive.when',
-                                       mock_hook_factory(_when_args))
-        cls._patched_when_started = cls._patched_when.start()
-        cls._patched_when_not = mock.patch('charms.reactive.when_not',
-                                           mock_hook_factory(_when_not_args))
-        cls._patched_when_not_started = cls._patched_when_not.start()
-        # force requires to rerun the mock_hook decorator:
-        # try except is Python2/Python3 compatibility as Python3 has moved
-        # reload to importlib.
-        try:
-            reload(handlers)
-        except NameError:
-            import importlib
-            importlib.reload(handlers)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls._patched_when.stop()
-        cls._patched_when_started = None
-        cls._patched_when = None
-        cls._patched_when_not.stop()
-        cls._patched_when_not_started = None
-        cls._patched_when_not = None
-        # and fix any breakage we did to the module
-        try:
-            reload(handlers)
-        except NameError:
-            import importlib
-            importlib.reload(handlers)
-
-    def setUp(self):
-        self._patches = {}
-        self._patches_start = {}
-
-    def tearDown(self):
-        for k, v in self._patches.items():
-            v.stop()
-            setattr(self, k, None)
-        self._patches = None
-        self._patches_start = None
-
-    def patch(self, obj, attr, return_value=None):
-        mocked = mock.patch.object(obj, attr)
-        self._patches[attr] = mocked
-        started = mocked.start()
-        started.return_value = return_value
-        self._patches_start[attr] = started
-        setattr(self, attr, started)
-
-    def test_registered_hooks(self):
-        # test that the hooks actually registered the relation expressions that
-        # are meaningful for this interface: this is to handle regressions.
-        # The keys are the function names that the hook attaches to.
-        when_patterns = {
-            'setup_amqp_req': ('amqp.connected', ),
-            'setup_database': ('shared-db.connected', ),
-            'setup_endpoint': ('identity-service.connected', ),
-            'render_stuff': ('shared-db.available',
-                             'identity-service.available',
-                             'amqp.available',),
-            'config_changed': ('config.changed', ),
-            'configure_ssl': ('identity-service.available', ),
+    def test_hooks(self):
+        defaults = [
+            'charm.installed',
+            'amqp.connected',
+            'shared-db.connected',
+            'identity-service.available',  # enables SSL support
+            'config.changed',
+            'update-status']
+        hook_set = {
+            'when': {
+                'render_stuff': ('shared-db.available',
+                                 'identity-service.available',
+                                 'amqp.available',),
+                'register_endpoints': ('identity-service.connected', ),
+                'maybe_do_syncdb': ('shared-db.available',
+                                    'manila.config.rendered', ),
+            }
         }
-        when_not_patterns = {
-            'install_packages': ('charm.installed', ),
-        }
-        # check the when hooks are attached to the expected functions
-        for t, p in [(_when_args, when_patterns),
-                     (_when_not_args, when_not_patterns)]:
-            for f, args in t.items():
-                # check that function is in patterns
-                # print("f: {}, args: {}".format(f, args))
-                self.assertTrue(f in p.keys())
-                # check that the lists are equal
-                l = [a['args'][0] for a in args]
-                self.assertEqual(l, sorted(p[f]))
+        # test that the hooks were registered via the
+        # reactive.barbican_handlers
+        self.registered_hooks_test_helper(handlers, hook_set, defaults)
 
-    def test_install_packages(self):
-        self.patch(handlers.manila, 'install')
-        self.patch(handlers.reactive, 'set_state')
-        handlers.install_packages()
-        self.install.assert_called_once_with()
-        self.set_state.assert_called_once_with('charm.installed')
 
-    def test_setup_amqp_req(self):
-        amqp = mock.MagicMock()
-        self.patch(handlers.hookenv, 'config')
-        reply = {
-            'rabbit-user': 'user1',
-            'rabbit-vhost': 'vhost1',
-        }
-        self.config.side_effect = lambda x: reply[x]
-        self.patch(handlers.manila, 'assess_status')
-        handlers.setup_amqp_req(amqp)
-        amqp.request_access.assert_called_once_with(
-            username='user1', vhost='vhost1')
-        self.assess_status.assert_called_once_with()
+class TestRenderStuff(test_utils.PatchHelper):
 
-    def test_database(self):
-        database = mock.MagicMock()
-        self.patch(handlers.hookenv, 'config')
-        reply = {
-            'database': 'db1',
-            'database-user': 'dbuser1',
-        }
-        self.config.side_effect = lambda x: reply[x]
-        self.patch(handlers.hookenv, 'unit_private_ip', 'private_ip')
-        self.patch(handlers.manila, 'assess_status')
-        handlers.setup_database(database)
-        database.configure.assert_called_once_with(
-            'db1', 'dbuser1', 'private_ip')
-        self.assess_status.assert_called_once_with()
+    def _patch_provide_charm_instance(self):
+        manila_charm = mock.MagicMock()
+        self.patch('charms_openstack.charm.provide_charm_instance',
+                   name='provide_charm_instance',
+                   new=mock.MagicMock())
+        self.provide_charm_instance().__enter__.return_value = manila_charm
+        self.provide_charm_instance().__exit__.return_value = None
+        return manila_charm
 
-    def test_setup_endpoint(self):
-        self.patch(handlers.manila, 'setup_endpoint')
-        self.patch(handlers.manila, 'assess_status')
-        handlers.setup_endpoint('endpoint_object')
-        self.setup_endpoint.assert_called_once_with('endpoint_object')
-        self.assess_status.assert_called_once_with()
+    def test_register_endpoints(self):
+        manila_charm = self._patch_provide_charm_instance()
+        handlers.register_endpoints('keystone')
+        manila_charm.register_endpoints.assert_called_once_with('keystone')
+        manila_charm.assess_status.assert_called_once_with()
+
+    def test_maybe_do_syncdb(self):
+        manila_charm = self._patch_provide_charm_instance()
+        handlers.maybe_do_syncdb('shared_db')
+        manila_charm.db_sync.assert_called_once_with()
 
     def test_render_stuff(self):
-        self.patch(handlers.manila, 'render_configs')
-        self.patch(handlers.manila, 'assess_status')
-        self.patch(handlers.reactive.RelationBase, 'from_state',
-                   return_value='hsm')
+        manila_charm = self._patch_provide_charm_instance()
+        self.patch('charms.reactive.set_state', name='set_state')
+
         handlers.render_stuff('arg1', 'arg2')
-        self.render_configs.assert_called_once_with(('arg1', 'arg2', 'hsm'))
-        self.assess_status.assert_called_once_with()
-        self.from_state.assert_called_once_with('hsm.available')
+        manila_charm.render_with_interfaces.assert_called_once_with(
+            ('arg1', 'arg2', ))
+        manila_charm.assess_status.assert_called_once_with()
+        self.set_state.assert_called_once_with('manila.config.rendered')
