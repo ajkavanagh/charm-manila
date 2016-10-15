@@ -31,6 +31,18 @@ then
     --disk-format=qcow2 < ~/images/cirros-0.3.4-x86_64-disk.img
 fi
 
+# fetch xenial if it doesn't exist!
+if ! elementIn "xenial" ${glance_image_list[@]};
+then
+  [ -f ~/images/xenial-server-cloudimg-amd64-disk1.img ] || {
+    wget -O ~/images/xenial-server-cloudimg-amd64-disk1.img \
+      http://cloud-images.ubuntu.com/xenial/current/xenial-server-cloudimg-amd64-disk1.img
+  }
+  glance --os-image-api-version 1 image-create --name="xenial" \
+    --is-public=true --progress --container-format=bare \
+    --disk-format=qcow2 < ~/images/xenial-server-cloudimg-amd64-disk1.img
+fi
+
 # fetch the manila-service-image if it doesn't exist (this is big)
 if ! elementIn "manila-service-image" ${glance_image_list[@]};
 then
@@ -51,6 +63,9 @@ fi
 if ! elementIn "m1.cirros" ${flavors[@]}; then
   openstack flavor create m1.cirros --id 6 --ram 64 --disk 0 --vcpus 1
 fi
+if ! elementIn "m1.xenial" ${flavors[@]}; then
+  openstack flavor create m1.xenial --id 7 --ram 2048 --disk 5 --vcpus 1
+fi
 
 
 # Create demo/testing users, tenants and flavor
@@ -67,7 +82,7 @@ keypairs=($(openstack keypair list -c Name -f value))
 if ! elementIn "demo-user" ${keypairs[@]}; then
   [ -f ./demo-user-rsa ] && rm -f ./demo-user-rsa
   openstack keypair create demo-user > ./demo-user-rsa
-  chmod 400 ./demo-user-rsa
+  chmod 600 ./demo-user-rsa
 fi
 
 ## need the network id for 'private' network to put into these images if they
@@ -75,17 +90,17 @@ fi
 net_id=$( openstack network list -c ID -c Name -f value | grep private | awk '{print $1}' | tr -d '\n')
 # get list of running servers
 server_list=($(openstack server list -c Name -f value))
-if ! elementIn "cirros-test1" ${server_list[@]}; then
+if ! elementIn "xenial-test1" ${server_list[@]}; then
   # and create two test vms for share testing
   # see if the two servers exist -- if either exists, tear it down.
-  openstack server create --flavor m1.cirros --image cirros --key-name demo-user \
-    --security-group default --nic net-id=$net_id cirros-test1
+  openstack server create --flavor m1.xenial --image xenial --key-name demo-user \
+    --security-group default --nic net-id=$net_id xenial-test1
 fi
-if ! elementIn "cirros-test2" ${server_list[@]}; then
+if ! elementIn "xenial-test2" ${server_list[@]}; then
   # and create two test vms for share testing
   # see if the two servers exist -- if either exists, tear it down.
-  openstack server create --flavor m1.cirros --image cirros --key-name demo-user \
-    --security-group default --nic net-id=$net_id cirros-test2
+  openstack server create --flavor m1.xenial --image xenial --key-name demo-user \
+    --security-group default --nic net-id=$net_id xenial-test2
 fi
 
 floating_ips=($(openstack ip floating list -c "Floating IP Address" -f value))
