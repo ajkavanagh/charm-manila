@@ -96,11 +96,11 @@ if ! elementIn "xenial-test1" ${server_list[@]}; then
   openstack server create --flavor m1.xenial --image xenial --key-name demo-user \
     --security-group default --nic net-id=$net_id xenial-test1
 fi
-if ! elementIn "xenial-test2" ${server_list[@]}; then
+if ! elementIn "cirros-test1" ${server_list[@]}; then
   # and create two test vms for share testing
   # see if the two servers exist -- if either exists, tear it down.
-  openstack server create --flavor m1.xenial --image xenial --key-name demo-user \
-    --security-group default --nic net-id=$net_id xenial-test2
+  openstack server create --flavor m1.cirros --image cirros \
+    --security-group default --nic net-id=$net_id cirros-test1
 fi
 
 floating_ips=($(openstack ip floating list -c "Floating IP Address" -f value))
