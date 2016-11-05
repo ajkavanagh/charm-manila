@@ -32,14 +32,54 @@ charms_openstack.charm.use_defaults(
     # 'identity-service.connected',
     'identity-service.available',  # enables SSL support
     # 'config.changed',
-    'update-status')
+    # 'update-status'
+)
 
 
 @charms.reactive.when('identity-service.connected')
 def register_endpoints(keystone):
+    """Register the endpoints when the identity-service connects.
+    Note that this charm doesn't use the default endpoint registration function
+    as it needs to register multiple endpoints, and thus needs a custom
+    function in the charm.
+    """
     with charms_openstack.charm.provide_charm_instance() as manila_charm:
         manila_charm.register_endpoints(keystone)
         manila_charm.assess_status()
+
+
+@charms.reactive.when('identity-service.connected',
+                      'manila-plugin.connected')
+def share_to_manila_plugins_auth(keystone, manila_plugin):
+    """When we have the identity-service and (a) backend plugin, share the auth
+    plugin with the back end.
+
+    TODO: if we have multiple manila-plugin's does this get called for each
+    relation that gets connected?
+    """
+    data = {
+        'username': keystone.service_username(),
+        'password': keystone.service_password(),
+        'project_domain_id': 'default',
+        'project_name': 'services',
+        'user_domain_id': 'default',
+        'auth_uri': ("{protocol}://{host}:{port}"
+                     .format(protocol=keystone.service_protocol(),
+                             host=keystone.service_host(),
+                             port=keystone.service_port())),
+        'auth_url': ("{protocol}://{host}:{port}"
+                     .format(protocol=keystone.auth_protocol(),
+                             host=keystone.auth_host(),
+                             port=keystone.auth_port())),
+        'auth_type': 'password',
+    }
+    # TODO: remove this debug
+    for c in manila_plugin.conversations():
+        hookenv.log("conversation(namespace:{}, units:{}, scope:{}, t:{}".
+                    format(c.namespace, c.units, c.scope, type(c.scope)),
+                    level=hookenv.DEBUG)
+    # Set the auth data to be the same for all plugins
+    manila_plugin.set_authentication_data(data)
 
 
 @charms.reactive.when('shared-db.available',
@@ -63,21 +103,20 @@ def render_stuff(*args):
     available.
     """
     with charms_openstack.charm.provide_charm_instance() as manila_charm:
+        hookenv.log(">>>> render_stuff called.", level=hookenv.DEBUG)
+        # TODO: how to get ALL of the manila-plugin conversations?
         manila_charm.render_with_interfaces(args)
         manila_charm.assess_status()
         charms.reactive.set_state('manila.config.rendered')
 
-@charms.reactive.when('config.changed')
-def config_changed():
+@charms.reactive.when('config.changed',
+                      'shared-db.available',
+                      'identity-service.available',
+                      'amqp.available')
+def config_changed(*args):
     """When the configuration is changed, check that we have all the interfaces
     and then re-render all the configuration files.  Note that this means that
     the configuration files won't be written until all the interfaces are
     available and STAY available.
     """
-    interfaces = [charms.reactive.RelationBase.from_state(s)
-                  for s in ('shared-db.available',
-                            'identity-service.available',
-                            'amqp.available')]
-    hookenv.log(">>>>>> interfaces: {}".format(interfaces))
-    if all(interfaces):
-        render_stuff(*interfaces)
+    render_stuff(*args)

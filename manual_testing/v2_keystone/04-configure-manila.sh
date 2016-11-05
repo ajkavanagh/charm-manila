@@ -30,17 +30,22 @@ fi
 flavor_id=$(openstack flavor list -c ID -c Name -f value | grep manila-service-flavor | awk '{ print $1 }')
 version=$(juju --version | head -c 1)
 if [ "$version" == "1" ]; then
-    juju_command="manila set"
+    juju_command="manila-generic set"
 elif [ "$version" == "2" ]; then
-    juju_command="config manila"
+    juju_command="config manila-generic"
 else
     echo "Can't work with version $version"
     exit 1
 fi
 juju $juju_command \
-    generic-driver-service-instance-flavor-id=$flavor_id \
-    share-backends=generic \
-    generic-driver-handles-share-servers=true \
-    default-share-backend=generic \
-    generic-driver-service-instance-password=manila \
-    generic-driver-auth-type=password
+    driver-service-instance-flavor-id=$flavor_id \
+    driver-handles-share-servers=true \
+    driver-service-instance-password=manila \
+    driver-auth-type=password
+
+if [ "$version" == "1" ]; then
+    juju_command="manila set"
+else
+    juju_command="config manila"
+fi
+juju $juju_command default-share-backend=generic

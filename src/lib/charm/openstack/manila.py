@@ -63,14 +63,13 @@ def strip_join(s, divider=" "):
 def computed_share_backends(config):
     """Determine the backend protocols that are provided as a string.
 
-    At the moment it just takes the 'share-backends' configuration option,
-    strings not alpha chars, lowercases it, and then provides a comma separated
-    list.
+    This asks the charm class what the backend protocols are, and then provides
+    it as a space separated list of backends.
 
     :param config: the config option on which to look up config options
     :returns: string
     """
-    return strip_join(config.share_backends, ' ')
+    return ' '.join(config.charm_instance.configured_backends)
 
 
 @charms_openstack.adapters.config_property
@@ -85,42 +84,14 @@ def computed_share_protocols(config):
 
 
 @charms_openstack.adapters.config_property
-def computed_generic_driver(config):
-    """Return True if the generic driver should be configured.
-    :returns: boolean
+def computed_backend_lines_manila_conf(config):
+    """Return the list of lines from the backends that need to go into the
+    various configuration files.
+
+    This one is for manila.conf
+    :returns list of lines: the config for the manila.conf file
     """
-    hookenv.log(">>>> computed_generic_driver")
-    hookenv.log("backends: {}".format(computed_share_backends(config)))
-    return 'generic' in computed_share_backends(config).lower().split(' ')
-
-
-@charms_openstack.adapters.config_property
-def computed_generic_use_password(config):
-    """Return True if the generic driver should use a password rather than an
-    ssh key.
-    :returns: boolean
-    """
-    return (bool(config.generic_driver_service_instance_password) &
-            ((config.generic_driver_auth_type or '').lower()
-             in ('password', 'both')))
-
-
-@charms_openstack.adapters.config_property
-def computed_generic_use_ssh(config):
-    """Return True if the generic driver should use a password rather than an
-    ssh key.
-    :returns: boolean
-    """
-    return ((config.generic_driver_auth_type or '').lower() in ('ssh', 'both'))
-
-
-@charms_openstack.adapters.config_property
-def computed_generic_define_ssh(config):
-    """Return True if the generic driver should define the SSH keys
-    :returns: boolean
-    """
-    return (bool(config.generic_driver_service_ssh_key) &
-            boot(config.generic_driver_service_ssh_key_public))
+    return config.charm_instance.config_lines_for(MANILA_CONF)
 
 
 @charms_openstack.adapters.config_property
@@ -180,8 +151,6 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
     # ha_resources = ['vips', 'haproxy']
 
     # Custom charm configuration
-    # These are the backends which this charm knows how to configure.
-    valid_share_backends = ['generic',]
 
     def install(self):
         """Called when the charm is being installed or upgraded.
@@ -203,26 +172,27 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
         :returns (status: string, message: string): the status, and message if
             there is a problem. Or (None, None) if there are no issues.
         """
-        config = self.config
-        if not config.get('share-backends', None):
+        # config = self.config
+        options = self.options  # tiny optimisation for less typing.
+        backends = options.computed_share_backends
+        if not backends:
+        # if not config.get('share-backends', None):
             return 'blocked', 'No share backends configured'
-        backends = str(config['share-backends']).split(' ')
-        invalid_backends = set(backends).difference(self.valid_share_backends)
-        if invalid_backends:
-            return 'blocked', 'Unknown backends: {}'.format(invalid_backends)
-        default_share_backend = config.get('default-share-backend', None)
+        # default_share_backend = config.get('default-share-backend', None)
+        default_share_backend = options.default_share_backend
         if not default_share_backend:
             return 'blocked', "'default-share-backend' is not set"
         if default_share_backend not in backends:
             return ('blocked',
                     "'default-share-backend:{}' is not a configured backend"
                     .format(default_share_backend))
-        if 'generic' in backends:
-            message = self._validate_generic_driver_config()
-            if message:
-                return 'blocked', message
+        # if 'generic' in backends:
+            # message = self._validate_generic_driver_config()
+            # if message:
+                # return 'blocked', message
         return None, None
 
+    # TODO: delete this function as no longer needed
     def _validate_generic_driver_config(self):
         """Validate that the driver configuration is at least complete, and
         that it was valid when it used (either at configuration time or config
@@ -348,3 +318,52 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
     @property
     def internal_url_v2(self):
         return super().internal_url + "/v2/%(tenant_id)s"
+
+    @property
+    def configured_backends(self):
+        """Return a list of configured backends that come from the associated
+        'manila-share.available' state..
+
+        TODO: Note that the first backend that becomes 'available' will set
+        this state.  It's not clear how multiple backends will interact yet!
+
+        :returns: list of strings: backend sections that are configured.
+        """
+        adapter = self.get_adapter('manila-plugin.available')
+        # import charms.reactive
+        # adapter = charms.reactive.RelationBase.from_state(
+            # 'manila-plugin.available')
+        if adapter is None:
+            return []
+        # adapter.names is a property that provides a list of backend manila
+        # plugin names for the sections
+        return adapter.relation.names
+
+    def config_lines_for(self, config_file):
+        """Return the list of configuration lines for `config_file` as returned
+        by manila-plugin backend charms.
+
+        TODO: Note that it is not clear how we get this from multiple plugin
+        charms -- still to be worked out
+
+        :param config_file: string, filename for configuration lines
+        :returns: list of strings: config lines for `config_file`
+        """
+        adapter = self.get_adapter('manila-plugin.available')
+        # import charms.reactive
+        # adapter = charms.reactive.RelationBase.from_state(
+            # 'manila-plugin.available')
+        if adapter is not None:
+            # get the configuration data for all plugins
+            config_data = adapter.relation.get_configuration_data()
+            if config_file not in config_data:
+                return []
+            config_lines = []
+            for section, lines in config_data[config_file].items():
+                if section == 'complete':
+                    continue
+                config_lines.append(section)
+                config_lines.extend(lines)
+                config_lines.append('')
+            return config_lines
+        return []

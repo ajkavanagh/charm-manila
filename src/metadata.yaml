@@ -11,9 +11,7 @@ description: |
 tags:
   - openstack
 series:
-# Trusty disabled pending https://bugs.launchpad.net/bugs/1609498
-# - trusty
- - xenial
+  - xenial
 subordinate: false
 requires:
   shared-db:
@@ -24,4 +22,7 @@ requires:
     interface: keystone
   neutron-plugin:
     interface: neutron-plugin
+    scope: container
+  manila-plugin:
+    interface: manila-plugin
     scope: container

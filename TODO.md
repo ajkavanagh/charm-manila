@@ -4,6 +4,8 @@ TODO
  * Add roles to the manila charm: api, scheduler, data, process, (all)
  * Add a manila-backend-plugin interface
  * Split the generic configuration into manila-generic-backend charm
+ * Add multiple conversation handling to the charms.openstack package to
+     support multiple backends in the charm.
  * Add unit tests
  * Add amulet tests
  * Put the manual testing bits into charm-openstack-testing so that the bundles

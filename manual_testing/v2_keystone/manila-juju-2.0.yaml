@@ -2,6 +2,7 @@
 # Juju 2.0 deploy bundle for development ('next') charms
 # UOSCI relies on this for OS-on-OS deployment testing
 series: xenial
+automatically-retry-hooks: False
 services:
   mysql:
     charm: cs:~openstack-charmers/xenial/percona-cluster
@@ -66,11 +67,16 @@ services:
     num_units: 1
     options:
       debug: True
+  manila-generic:
+    charm: ./xenial/manila-generic
+    options:
+      debug: True
 relations:
   - [ keystone, mysql ]
   - [ manila, mysql ]
   - [ manila, rabbitmq-server ]
   - [ manila, keystone ]
+  - [ manila, manila-generic ]
   - [ glance, keystone]
   - [ glance, mysql ]
   - [ glance, "cinder:image-service" ]
