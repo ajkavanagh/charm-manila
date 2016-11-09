@@ -20,10 +20,7 @@ from __future__ import absolute_import
 import re
 import subprocess
 
-import charmhelpers.contrib.openstack.utils as ch_utils
 import charmhelpers.core.hookenv as hookenv
-import charmhelpers.core.unitdata as unitdata
-import charmhelpers.fetch
 
 import charms_openstack.charm
 import charms_openstack.adapters
@@ -46,15 +43,18 @@ MANILA_API_PASTE_CONF = MANILA_DIR + "api-paste.ini"
 # select the default release function and ssl feature
 charms_openstack.charm.use_defaults('charm.default-select-release')
 
+
 def strip_join(s, divider=" "):
-    """Cleanup the string passed, split on whitespace and then rejoin it cleanly
+    """Cleanup the string passed, split on whitespace and then rejoin it
+    cleanly
 
     :param s: A sting to cleanup, remove non alpha chars and then represent the
         string.
     :param divider: The joining string to put the bits back together again.
     :returns: string
     """
-    return divider.join(re.split(r'\s+', re.sub(r'([^\s\w-])+', '', (s or ""))))
+    return divider.join(
+        re.split(r'\s+', re.sub(r'([^\s\w-])+', '', (s or ""))))
 
 
 ###
@@ -159,7 +159,7 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
         installed to check to see whether it is blocked or can go into service.
         """
         super().install()
-        # TODO: this creates the /etc/nova directory for the
+        # this creates the /etc/nova directory for the
         # neutron-openvswitch plugin if needed.
         subprocess.check_call(["mkdir", "-p", "/etc/nova"])
         self.assess_status()
@@ -172,13 +172,10 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
         :returns (status: string, message: string): the status, and message if
             there is a problem. Or (None, None) if there are no issues.
         """
-        # config = self.config
         options = self.options  # tiny optimisation for less typing.
         backends = options.computed_share_backends
         if not backends:
-        # if not config.get('share-backends', None):
             return 'blocked', 'No share backends configured'
-        # default_share_backend = config.get('default-share-backend', None)
         default_share_backend = options.default_share_backend
         if not default_share_backend:
             return 'blocked', "'default-share-backend' is not set"
@@ -186,44 +183,14 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
             return ('blocked',
                     "'default-share-backend:{}' is not a configured backend"
                     .format(default_share_backend))
-        # if 'generic' in backends:
-            # message = self._validate_generic_driver_config()
-            # if message:
-                # return 'blocked', message
         return None, None
-
-    # TODO: delete this function as no longer needed
-    def _validate_generic_driver_config(self):
-        """Validate that the driver configuration is at least complete, and
-        that it was valid when it used (either at configuration time or config
-        changed time)
-
-        :returns string/None: string if there is a proble, None if it is valid
-        """
-        config = self.config
-        if not config.get('generic-driver-handles-share-servers', None):
-            # Nothing to check if the driver doesn't handle share servers
-            # directly.
-            return None
-        if not config.get('generic-driver-service-image-name', None):
-            return "Missing 'generic-driver-service-image-name'"
-        if not config.get('generic-driver-service-instance-user', None):
-            return "Missing 'generic-driver-service-instance-user'"
-        if not config.get('generic-driver-service-instance-flavor-id', None):
-            return "Missing 'generic-driver-service-instance-flavor-id"
-        # Need at least one of the password or the keypair
-        if (not (bool(config.get(
-                'generic-driver-service-instance-password', None))) and
-                not (bool(config.get('generic-driver-keypair-name', None)))):
-            return "Need at least one of instance password or keypair name"
-        return None
 
     def get_amqp_credentials(self):
         """Provide the default amqp username and vhost as a tuple.
 
         :returns (username, host): two strings to send to the amqp provider.
         """
-        return (self.config['rabbit-user'], self.config['rabbit-vhost'])
+        return (self.options.rabbit_user, self.options.rabbit_vhost)
 
     def get_database_setup(self):
         """Provide the default database credentials as a list of 3-tuples
@@ -240,8 +207,8 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
         """
         return [
             dict(
-                database=self.config['database'],
-                username=self.config['database-user'],
+                database=self.options.database,
+                username=self.options.database_user,
                 hostname=hookenv.unit_private_ip(), )
         ]
 
@@ -330,9 +297,6 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
         :returns: list of strings: backend sections that are configured.
         """
         adapter = self.get_adapter('manila-plugin.available')
-        # import charms.reactive
-        # adapter = charms.reactive.RelationBase.from_state(
-            # 'manila-plugin.available')
         if adapter is None:
             return []
         # adapter.names is a property that provides a list of backend manila
@@ -350,9 +314,6 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
         :returns: list of strings: config lines for `config_file`
         """
         adapter = self.get_adapter('manila-plugin.available')
-        # import charms.reactive
-        # adapter = charms.reactive.RelationBase.from_state(
-            # 'manila-plugin.available')
         if adapter is not None:
             # get the configuration data for all plugins
             config_data = adapter.relation.get_configuration_data()
@@ -361,6 +322,10 @@ class ManilaCharm(charms_openstack.charm.HAOpenStackCharm):
             config_lines = []
             for section, lines in config_data[config_file].items():
                 if section == 'complete':
+                    # if the 'lines' is not truthy, then this conf isn't
+                    # complete, so just break out.
+                    if not lines:
+                        break
                     continue
                 config_lines.append(section)
                 config_lines.extend(lines)

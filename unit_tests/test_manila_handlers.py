@@ -18,7 +18,6 @@ from __future__ import print_function
 import mock
 
 import reactive.manila_handlers as handlers
-import charm.openstack.manila as handlers_manila
 
 import charms_openstack.test_utils as test_utils
 
@@ -31,16 +30,21 @@ class TestRegisteredHooks(test_utils.TestRegisteredHooks):
             'amqp.connected',
             'shared-db.connected',
             'identity-service.available',  # enables SSL support
-            'config.changed',
-            'update-status']
+        ]
         hook_set = {
             'when': {
                 'render_stuff': ('shared-db.available',
                                  'identity-service.available',
-                                 'amqp.available',),
+                                 'amqp.available', ),
                 'register_endpoints': ('identity-service.connected', ),
+                'share_to_manila_plugins_auth': ('identity-service.connected',
+                                                 'manila-plugin.connected', ),
                 'maybe_do_syncdb': ('shared-db.available',
                                     'manila.config.rendered', ),
+                'config_changed': ('config.changed',
+                                   'shared-db.available',
+                                   'identity-service.available',
+                                   'amqp.available', )
             }
         }
         # test that the hooks were registered via the
@@ -79,3 +83,8 @@ class TestRenderStuff(test_utils.PatchHelper):
             ('arg1', 'arg2', ))
         manila_charm.assess_status.assert_called_once_with()
         self.set_state.assert_called_once_with('manila.config.rendered')
+
+    def test_config_changed(self):
+        self.patch_object(handlers, 'render_stuff')
+        handlers.config_changed('hello', 'there')
+        self.render_stuff.assert_called_once_with('hello', 'there')

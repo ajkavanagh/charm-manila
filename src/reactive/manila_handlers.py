@@ -109,6 +109,7 @@ def render_stuff(*args):
         manila_charm.assess_status()
         charms.reactive.set_state('manila.config.rendered')
 
+
 @charms.reactive.when('config.changed',
                       'shared-db.available',
                       'identity-service.available',
