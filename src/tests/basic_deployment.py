@@ -23,13 +23,14 @@ u = OpenStackAmuletUtils(DEBUG)
 
 
 class ManilaBasicDeployment(OpenStackAmuletDeployment):
-    """Amulet tests on a basic Barbican deployment."""
+    """Amulet tests on a basic Manila deployment."""
 
     def __init__(self, series, openstack=None, source=None, stable=False):
         """Deploy the entire test environment.
         """
         super(ManilaBasicDeployment, self).__init__(
             series, openstack, source, stable)
+        self._keystone_version = '2'
         self._add_services()
         self._add_relations()
         self._configure_services()
@@ -71,7 +72,6 @@ class ManilaBasicDeployment(OpenStackAmuletDeployment):
             'admin-password': 'openstack',
             'admin-token': 'ubuntutesting',
         }
-        # say we don't need an HSM for these tests
         manila_config = {
         }
         configs = {
