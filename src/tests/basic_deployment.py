@@ -8,6 +8,7 @@ from keystoneclient.auth import identity as keystone_identity
 import keystoneclient.exceptions
 from keystoneclient.v2_0 import client as keystone_v2_0_client
 from keystoneclient.v3 import client as keystone_v3_client
+from manilaclient.v1 import client as manila_client
 
 from charmhelpers.contrib.openstack.amulet.deployment import (
     OpenStackAmuletDeployment
@@ -481,7 +482,7 @@ class ManilaBasicDeployment(OpenStackAmuletDeployment):
         manila_ep = self.keystone.service_catalog.url_for(
             service_type='key-manager', endpoint_type='publicURL')
         manila = manila_client.Client(session=sess,
-                                          endpoint=manila_ep)
+                                      endpoint=manila_ep)
         # now create the secret.
         my_secret = manila.secrets.create()
         my_secret.name = u'Random plain text password'
