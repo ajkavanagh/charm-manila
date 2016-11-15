@@ -73,11 +73,6 @@ def share_to_manila_plugins_auth(keystone, manila_plugin):
                              port=keystone.auth_port())),
         'auth_type': 'password',
     }
-    # TODO: remove this debug
-    for c in manila_plugin.conversations():
-        hookenv.log("conversation(namespace:{}, units:{}, scope:{}, t:{}".
-                    format(c.namespace, c.units, c.scope, type(c.scope)),
-                    level=hookenv.DEBUG)
     # Set the auth data to be the same for all plugins
     manila_plugin.set_authentication_data(data)
 
@@ -103,8 +98,6 @@ def render_stuff(*args):
     available.
     """
     with charms_openstack.charm.provide_charm_instance() as manila_charm:
-        hookenv.log(">>>> render_stuff called.", level=hookenv.DEBUG)
-        # TODO: how to get ALL of the manila-plugin conversations?
         manila_charm.render_with_interfaces(args)
         manila_charm.assess_status()
         charms.reactive.set_state('manila.config.rendered')
